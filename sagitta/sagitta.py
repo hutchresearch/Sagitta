@@ -16,7 +16,7 @@ import torch.utils.data
 from astropy.table import Table as AstroTable
 
 #--------------- Local Imports ---------------#
-import data_tools
+from data_tools import SagittaDataset, DataTools
 from model_code import Sagitta
 
 #--------------- Main Pipeline ---------------#
@@ -34,7 +34,7 @@ def main():
         sys.exit()
     pipeline.try_ra_dec_to_l_b()
     pipeline.download_missing_data()
-    pipeline.data_frame = data_tools.fix_and_mark_nans(
+    pipeline.data_frame = DataTools.fix_and_mark_nans(
                                         data_frame=pipeline.data_frame,
                                         nan_column_extension=pipeline.nan_column_suffix
                                         )
@@ -136,11 +136,12 @@ class SagittaPipeline:
             print("In testing mode!")
             input_table = input_table[:10000]
         print("\tMaking dataframe from table")
-        self.data_frame = data_tools.pandas_from_table(table=input_table)
+        self.data_frame = DataTools.pandas_from_table(table=input_table)
 
 
     def check_bad_source_id_rows(self):
         """
+        Determines if there are any issues with the values of the source id column
         """
         source_id_col = self.std_input_col_naming["source_id"]
         valid_id_rows = np.where(np.logical_not(np.isnan(self.data_frame[source_id_col])))[0]
@@ -159,7 +160,7 @@ class SagittaPipeline:
                     self.data_frame.drop_duplicates(subset=source_id_col, inplace=True)
                 else:
                     sys.exit()
-        
+
 
     def check_output_columns_overwrite(self):
         """
@@ -247,7 +248,7 @@ class SagittaPipeline:
             missing_fields_frame = pd.DataFrame()
             source_id_col_name = self.std_input_col_naming["source_id"]
             missing_fields_frame["source_id"] = self.data_frame[source_id_col_name]
-            missing_fields_frame = data_tools.download_missing_fields(
+            missing_fields_frame = DataTools.download_missing_fields(
                                                     data_frame=missing_fields_frame,
                                                     missing_fields=missing_fields
                                                     )
@@ -277,7 +278,7 @@ class SagittaPipeline:
                             "eparallax", "eg", "ebp", "erp", "ej", "eh", "ek",
                             "pmra", "pmdec", "epmra", "epmdec"]:
                 important_columns.add(field)
-        else: 
+        else:
             if self.should_run_av_model():
                 for field in ["l", "b", "parallax"]:
                     important_columns.add(field)
@@ -303,11 +304,11 @@ class SagittaPipeline:
         2) Appends the Av values to the dataframe
         """
         print("Predicting stellar extinctions as {}".format(self.args.av_out))
-        av_dataset = data_tools.SagittaDataset(
-                                        frame=self.data_frame,
-                                        data_format="StellarExtinction",
-                                        column_names=self.std_input_col_naming
-                                        )
+        av_dataset = SagittaDataset(
+                                frame=self.data_frame,
+                                data_format="StellarExtinction",
+                                column_names=self.std_input_col_naming
+                                )
         av_dataloader = torch.utils.data.DataLoader(
                                         av_dataset,
                                         batch_size=self.args.batch_size,
@@ -370,11 +371,11 @@ class SagittaPipeline:
             loop_frame["source_id"] = self.data_frame[source_id_name]
             varied_frame = varied_frame.append(loop_frame.copy(), ignore_index=True)
         print("\tRunning the Av model on the varied data")
-        av_uncertainty_dataset = data_tools.SagittaDataset(
-                                                frame=varied_frame,
-                                                data_format="StellarExtinction",
-                                                column_names=std_naming,
-                                                )
+        av_uncertainty_dataset = SagittaDataset(
+                                        frame=varied_frame,
+                                        data_format="StellarExtinction",
+                                        column_names=std_naming,
+                                        )
         av_uncertainty_dataloader = torch.utils.data.DataLoader(
                                                 av_uncertainty_dataset,
                                                 batch_size=self.args.batch_size,
@@ -428,11 +429,11 @@ class SagittaPipeline:
         2) Appends the Yso values to the dataframe
         """
         print("Predicting PMS probablities as {}".format(self.args.pms_out))
-        pms_dataset = data_tools.SagittaDataset(
-                                            frame=self.data_frame,
-                                            data_format="YoungStarClassifier",
-                                            column_names=self.std_input_col_naming
-                                            )
+        pms_dataset = SagittaDataset(
+                                frame=self.data_frame,
+                                data_format="PMSClassifier",
+                                column_names=self.std_input_col_naming
+                                )
         pms_dataloader = torch.utils.data.DataLoader(
                                             pms_dataset,
                                             batch_size=self.args.batch_size,
@@ -508,11 +509,11 @@ class SagittaPipeline:
             "h"         :   "h",
             "k"         :   "k"
         }
-        pms_uncertainty_dataset = data_tools.SagittaDataset(
-                                                frame=varied_frame,
-                                                data_format="YoungStarClassifier",
-                                                column_names=std_naming
-                                                )
+        pms_uncertainty_dataset = SagittaDataset(
+                                        frame=varied_frame,
+                                        data_format="PMSClassifier",
+                                        column_names=std_naming
+                                        )
         pms_uncertainty_dataloader = torch.utils.data.DataLoader(
                                                 pms_uncertainty_dataset,
                                                 batch_size=self.args.batch_size,
@@ -566,11 +567,11 @@ class SagittaPipeline:
         2) Appends the Age values to the dataframe
         """
         print("Predicting stellar ages as {}".format(self.args.age_out))
-        age_dataset = data_tools.SagittaDataset(
-                                                frame=self.data_frame,
-                                                data_format="YoungStarAgeRegressor",
-                                                column_names=self.std_input_col_naming
-                                                )
+        age_dataset = SagittaDataset(
+                                frame=self.data_frame,
+                                data_format="YoungStarAgeRegressor",
+                                column_names=self.std_input_col_naming
+                                )
         age_dataloader = torch.utils.data.DataLoader(
                                                 age_dataset,
                                                 batch_size=self.args.batch_size,
@@ -595,7 +596,7 @@ class SagittaPipeline:
                 section_output = age_model(section_input)
                 age_predictions.append(section_output)
         age_predictions = torch.cat(age_predictions).cpu().detach().numpy()
-        age_predictions = data_tools.normalize_gaia(
+        age_predictions = DataTools.normalize_gaia(
                                         column_vals=age_predictions,
                                         column_name="age",
                                         back=True
@@ -651,11 +652,11 @@ class SagittaPipeline:
             "k"         :   "k"
         }
         print("\tRunning the age model on the varied data")
-        age_uncertainty_dataset = data_tools.SagittaDataset(
-                                                frame=varied_frame,
-                                                data_format="YoungStarAgeRegressor",
-                                                column_names=std_naming
-                                                )
+        age_uncertainty_dataset = SagittaDataset(
+                                        frame=varied_frame,
+                                        data_format="YoungStarAgeRegressor",
+                                        column_names=std_naming
+                                        )
         age_uncertainty_dataloader = torch.utils.data.DataLoader(
                                                 age_uncertainty_dataset,
                                                 batch_size=self.args.batch_size,
@@ -681,7 +682,7 @@ class SagittaPipeline:
                 section_output = age_model(section_input)
                 age_predictions.append(section_output)
         age_predictions = torch.cat(age_predictions).cpu().detach().numpy()
-        varied_frame["age"] = data_tools.normalize_gaia(
+        varied_frame["age"] = DataTools.normalize_gaia(
                                             column_vals=age_predictions,
                                             column_name="age",
                                             back=True
