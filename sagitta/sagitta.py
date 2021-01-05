@@ -16,8 +16,12 @@ import torch.utils.data
 from astropy.table import Table as AstroTable
 
 #--------------- Local Imports ---------------#
-from data_tools import SagittaDataset, DataTools
-from model_code import Sagitta
+if __name__ == "sagitta.sagitta":
+    from sagitta.data_tools import DataTools, SagittaDataset
+    from sagitta.model_code import Sagitta
+else:
+    from data_tools import DataTools, SagittaDataset
+    from model_code import Sagitta
 
 #--------------- Main Pipeline ---------------#
 def main():
@@ -57,9 +61,8 @@ def main():
 #--------------- Sagitta Pipeline Class ---------------#
 class SagittaPipeline:
     """
-    Pipeline Class
-        The pipeline is run by calling the functions
-        in this class and modifying its internal state
+    The pipeline is run by calling the functions
+    in this class and modifying its internal state
     """
 
     def __init__(self, args):
@@ -78,7 +81,6 @@ class SagittaPipeline:
         self.working_overlap_column_renaming = {}
         self.data_frame = None
         self.model_output_frame = None
-
 
     def get_naming_changes(self):
         """
