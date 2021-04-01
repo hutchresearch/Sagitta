@@ -33,7 +33,8 @@ def main():
         sys.exit()
     pipeline.get_naming_changes()
     pipeline.load_input_table()
-    pipeline.check_bad_source_id_rows()
+    #if not pipeline.args.ignore_bad_rows:
+    #    pipeline.check_bad_source_id_rows()
     if pipeline.check_output_columns_overwrite():
         sys.exit()
     pipeline.try_ra_dec_to_l_b()
@@ -120,25 +121,29 @@ class SagittaPipeline:
         4) Creating input pandas frame
         """
         print("Loading input table")
-        input_table = AstroTable.read(self.args.tableIn, format="fits")
-        input_table_column_names = [col.lower() for col in input_table.colnames]
-        user_specified_columns = []
-        for _, (std, user_given) in enumerate(self.std_input_col_naming.items()):
-            if std != user_given:
-                user_specified_columns.append(user_given)
-        incorrect_names = set(user_specified_columns)-set(input_table_column_names)
-        if self.args.av and self.args.av not in input_table_column_names:
-            incorrect_names.add(self.args.av)
-        if len(incorrect_names) > 0:
-            print("ERROR: Unable to find the specified column(s) in the input table:",
-                    ", ".join(list(incorrect_names)),
-                    file=sys.stderr)
-            sys.exit()
-        if self.args.test:
-            print("In testing mode!")
-            input_table = input_table[:10000]
-        print("\tMaking dataframe from table")
-        self.data_frame = DataTools.pandas_from_table(table=input_table)
+        if not self.args.single_object:
+            input_table = AstroTable.read(self.args.tableIn)
+            input_table_column_names = [col.lower() for col in input_table.colnames]
+            user_specified_columns = []
+            for _, (std, user_given) in enumerate(self.std_input_col_naming.items()):
+                if std != user_given:
+                    user_specified_columns.append(user_given)
+            incorrect_names = set(user_specified_columns)-set(input_table_column_names)
+            if self.args.av and self.args.av not in input_table_column_names:
+                incorrect_names.add(self.args.av)
+            if len(incorrect_names) > 0:
+                print("ERROR: Unable to find the specified column(s) in the input table:",
+                        ", ".join(list(incorrect_names)),
+                        file=sys.stderr)
+                sys.exit()
+            if self.args.test:
+                print("In testing mode!")
+                input_table = input_table[:10000]
+            print("\tMaking dataframe from table")
+            self.data_frame = DataTools.pandas_from_table(table=input_table)
+        else:
+            print('Creating a catalog using a given source_id')
+            self.data_frame = pd.DataFrame(data=[int(self.args.tableIn)],columns=['source_id'])
 
 
     def check_bad_source_id_rows(self):
@@ -146,7 +151,7 @@ class SagittaPipeline:
         Determines if there are any issues with the values of the source id column
         """
         source_id_col = self.std_input_col_naming["source_id"]
-        valid_id_rows = np.where(np.logical_not(np.isnan(self.data_frame[source_id_col])))[0]
+        valid_id_rows = np.where((np.logical_not(np.isnan(self.data_frame[source_id_col]))) & (self.data_frame[source_id_col]>0))[0]
         if len(valid_id_rows) != len(self.data_frame):
             print("ERROR: The input table must have source IDs for every row.",
                     file=sys.stderr)
@@ -157,10 +162,11 @@ class SagittaPipeline:
             answer = ""
             while (answer.lower() != "continue" and answer.lower() != "exit"):
                 answer = input("To continue, confirm that you are willing to drop rows with " +
-                                "duplicate Gaia source IDs? (continue/exit) ").strip()
+                                "duplicate Gaia source IDs? (continue/exit).\n").strip()
                 if answer == "continue":
                     self.data_frame.drop_duplicates(subset=source_id_col, inplace=True)
                 else:
+                    print("Aborting. To ignore, run with --ignore_bad_rows")
                     sys.exit()
 
 
@@ -252,16 +258,18 @@ class SagittaPipeline:
             missing_fields_frame["source_id"] = self.data_frame[source_id_col_name]
             missing_fields_frame = DataTools.download_missing_fields(
                                                     data_frame=missing_fields_frame,
-                                                    missing_fields=missing_fields
+                                                    missing_fields=missing_fields,
+                                                    ver=self.args.version
                                                     )
             missing_fields_frame.rename(
                                     columns={"source_id" : self.std_input_col_naming["source_id"]},
                                     inplace=True
                                     )
+            missing_fields_frame=missing_fields_frame.drop_duplicates()
             self.data_frame = self.data_frame.merge(
                                                 missing_fields_frame,
                                                 on=self.std_input_col_naming["source_id"],
-                                                how="inner"
+                                                how="left"
                                                 )
 
     def get_missing_fields_list(self):
@@ -733,7 +741,10 @@ class SagittaPipeline:
         if self.args.test:
             print("Output table columns:", ", ".join(output_table.colnames))
         print("Saving output table to {}".format(output_table_name))
-        output_table.write(output_table_name, format="fits", overwrite=True)
+        
+        a=np.where(output_table[self.std_input_col_naming["source_id"]]<0)[0]
+        output_table[self.std_input_col_naming["source_id"]].mask[a]=True
+        output_table.write(output_table_name, overwrite=True)
 
     def get_output_table_name(self):
         """
@@ -837,10 +848,14 @@ class SagittaPipeline:
                         file=sys.stderr)
             is_valid = False
         # File I/O
-        if not os.path.exists(self.args.tableIn):
+        if not os.path.exists(self.args.tableIn) and not self.args.single_object:
             print("ERROR: No file located at \"" + self.args.tableIn + "\"",
                         file=sys.stderr)
             is_valid = False
+        elif self.args.single_object and not self.args.tableIn.isdigit():
+            print('Cannot use the input as a valid source_id')
+            is_valid = False
+        
         if not self.args.test:
             if os.path.exists(self.get_output_table_name()):
                 print("WARNING: Output will overwrite file at \"" +
@@ -878,7 +893,8 @@ def parse_args():
     # Main Pipeline Control Options:
     sagitta_options = parser.add_argument_group("Sagitta pipeline options")
     sagitta_options.add_argument("tableIn",
-                        help="File path and name for table with Gaia source ids (.fits file)",
+                        help="File path and name for table with Gaia source ids (.fits file) OR" +
+                                "a single source_id (if specified as --single_object)",
                         type=str)
     sagitta_options.add_argument("--tableOut",
                         help="File path and name for where to save the output table " +
@@ -888,6 +904,17 @@ def parse_args():
                         help="Will only download the missing/unspecified Gaia/2MASS data and" +
                                 "will not run any of the models " +
                                 "(i.e. no Av, PMS or age predicitons).",
+                        action="store_true")
+    sagitta_options.add_argument("--version",
+                        help="Gaia data release version to download data" +
+                                "[default: \"edr3\", allows \"dr2\"|\"edr3\"]",
+                        default="edr3",
+                        type=str)
+    #sagitta_options.add_argument("--ignore_bad_rows",
+    #                    help="Will suppress a check for rows that have missing or duplicate source_id",
+    #                    action="store_true")
+    sagitta_options.add_argument("--single_object",
+                        help="Instead of reading in a table, will create one using a single source_id",
                         action="store_true")
     sagitta_options.add_argument("--av",
                         help="The input table column name for stellar extinction " +
