@@ -5,7 +5,7 @@ Sagitta is a deep neural network based python3 pipeline that relies on Gaia DR2 
 ```pip install sagitta``` (requires Python3)
 
 ## Description
-Sagitta is a python3 script that takes a Flexible Image Transport System (FITS) file as input. The only required column that must be specified for predictions to be generated is the Gaia DR2 source ID column with the ```--source_id``` flag. The values for the source id column must be unique for each star. All other missing required fields can/will be automatically downloaded when the pipeline is run. If a file is given that contains stars with and without Gaia source IDs, only the stars with values for the source ID will be run through the pipeline. In its default configuration, the pipeline will produce three predictions for each star: 1) a estimation of stellar extinction (Av), 2) the probablilty that a star is PMS (with 0 being 0% probablity and 1 being a 100% probablity), and 3) the estimated age of each star. Once the pipeline has been run and the output table has been automatically saved, the user should look at the output to determine an appropriate PMS output probablity cutoff to create their predicted PMS subset (ie. select pms > 0.8). Due to the nature of how the age model in the pipeline was trained only stars with significantly high PMS model probability output should be considered to have accurate age predictions.
+Sagitta is a python3 script that takes a Flexible Image Transport System (FITS) file as input. The only required column that must be specified for predictions to be generated is the Gaia EDR3 (or Gaia DR2) source ID column with the ```--source_id``` flag (data release can be specified via ```--version``` flag). All other missing required fields can/will be automatically downloaded when the pipeline is run. If a file is given that contains stars with and without Gaia source IDs, only the stars with values for the source ID will be run through the pipeline. In its default configuration, the pipeline will produce three predictions for each star: 1) a estimation of stellar extinction (Av), 2) the probablilty that a star is PMS (with 0 being 0% probablity and 1 being a 100% probablity), and 3) the estimated age of each star. Once the pipeline has been run and the output table has been automatically saved, the user should look at the output to determine an appropriate PMS output probablity cutoff to create their predicted PMS subset (ie. select pms > 0.8). Due to the nature of how the age model in the pipeline was trained only stars with significantly high PMS model probability output should be considered to have accurate age predictions.
 
 Behing the scenes, Sagitta uses three seperate convolutional neural networks (CNNs) to make its predictions. The first model, denoted as the Av model, is used for generating stellar extcintion (Av) values for stars in the input table. The second model, denoted as the PMS model, is used for generating the probability that each star is pre-main sequence. The thrid model, denoted as the age model, is used for generating the predicted ages for the stars.
 
@@ -18,6 +18,9 @@ In the default configuration all three models will be run with their outputs sav
 
 ###### Only Downloading Data
 If you want to only download all of the data required for the use of the pipeline but NOT run any of the models, than you can use the ```--download_only``` flag to perform this action. It will download all required Gaia and 2MASS fields along with their associated errors, parallax, PMRA, PMDEC, PMRA_error, and PMDEC_error for every star with Gaia source ID specified.
+
+###### Single source mode
+By default, Sagitta expects a path to the table that would contain source_id of each star. If you are interested in estimating parameters of only one star, instead of a catalog, it is possible to provide source_id as an input with the flag of ```--single_object```.
 
 ###### Prediction Uncertainty Statistic Generation
 Also included in the pipeline is a uncertainty statistics generator for each of the models predictions. The statistics are generated on a per-star basis by randomly varying the input parameters by their associated errors and analyzing the outputs. The number of times each star is sampled to create these output statistics is an option given to the user but it should be noted that computaional cost scales linearly with the number of times sampled. These uncertainty generators are turned off by default but can be turned on by specifying the ```--av_uncertainty```, ```--pms_uncertainty```, or ```--age_uncertainy``` flags where the number of times to sample each star follows the flag (ie using ```--age_uncertainty 10``` would generate the age model output statistics for each star by sampling each star 10 times, varying the outputs, and analying the predictions). The statistics produced for the model output includes mean, median, standard deviation, variance, minimum, and maximum.
@@ -92,7 +95,10 @@ Running all three models AND generating the PMS output uncertainty statistics wi
 ```sagitta example.fits --pms_uncertainty 5```
 
 Specifying that the example.fits's source ID colum is named Gaia_DR2_ID:
-```sagitta example.fits --source_id Gaia_DR2_ID```
+```sagitta example.fits --source_id Gaia_DR2_ID --version dr2 ```
+
+Processing only a single source:
+```sagitta Gaia_EDR3_ID --version edr3 --single_object```
 
 Pulling up the terminal help:
 ```sagitta --help```
