@@ -70,14 +70,15 @@ class DataTools():
         1) Converts the column names of the fits file to lowercase
         2) Renames columns based on the contents of column_renaming
         """
-        data_frame = table.to_pandas()
+        
+        data_frame = table.filled(fill_value=-1).to_pandas()
         for col in data_frame:
             data_frame.rename(columns={col: col.lower()}, inplace=True)
             col=col.lower()
         return data_frame
 
     @staticmethod
-    def download_missing_fields(data_frame, missing_fields):
+    def download_missing_fields(data_frame, missing_fields,ver):
         """
         1) Downloads any missing data columns as specified in missing_fields
         2) Returns a table with only the downloaded fields plus the source ids
@@ -114,7 +115,10 @@ class DataTools():
             fields_to_download = ""
             for field in missing_fields:
                 fields_to_download = fields_to_download + ", " + missing_name_to_query[field]
-            query_string = "SELECT g.source_id" + fields_to_download + " \
+                
+            if ver=='dr2':
+                print('Using Gaia DR2')
+                query_string = "SELECT g.source_id" + fields_to_download + " \
                             FROM gaiadr2.gaia_source AS g \
                             inner join TAP_UPLOAD.input_table AS input_table \
                             ON g.source_id = input_table.source_id \
@@ -122,12 +126,31 @@ class DataTools():
                             ON g.source_id = xmatch.source_id \
                             LEFT OUTER JOIN gaiadr1.tmass_original_valid AS tm \
                             ON tm.tmass_oid = xmatch.tmass_oid"
+            elif ver=='edr3':
+                print('Using Gaia EDR3')
+                query_string = "SELECT g.source_id" + fields_to_download + " \
+                            FROM gaiaedr3.gaia_source AS g \
+                            inner join TAP_UPLOAD.input_table AS input_table \
+                            ON g.source_id = input_table.source_id \
+                            LEFT OUTER JOIN gaiaedr3.tmass_psc_xsc_best_neighbour AS xmatch \
+                            ON g.source_id = xmatch.source_id \
+                            LEFT OUTER JOIN gaiaedr3.tmass_psc_xsc_join AS xmatch_join \
+                            ON xmatch.clean_tmass_psc_xsc_oid = xmatch_join.clean_tmass_psc_xsc_oid \
+                            LEFT OUTER JOIN gaiadr1.tmass_original_valid AS tm \
+                            ON tm.designation = xmatch_join.original_psc_source_id"
+            else:
+                print('Unsupported Gaia data release. Cannot download photometry, aborting.')
+                sys.exit()
+                
             query_result = Gaia.launch_job_async(
                 query = " ".join(query_string.split()),
                 upload_resource = input_table,
                 upload_table_name = "input_table",
                 verbose = False)
             missing_fields_table = query_result.get_results().to_pandas()
+            if len(missing_fields_table)==0:
+                print('Could not query any data for the specified source_id')
+                sys.exit()
             return missing_fields_table
         print("Error: The input table MUST contain a \"source_id\" column.", file=sys.stderr)
         sys.exit()
