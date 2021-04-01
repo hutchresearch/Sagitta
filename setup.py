@@ -9,7 +9,7 @@ with open("README.md", "r") as fh:
     
 setuptools.setup(
     name="Sagitta",
-    version="1.0",
+    version="1.1",
     author="Aidan McBride, Ryan Lingg, Marina Kounkel, Kevin Covey, Brian Hutchinson",
     author_email="marina.kounkel@wwu.edu, mcbrida5@wwu.edu, linggr@wwu.edu",
     description="A neural network based pipeline to identify pre-main sequence stars and estimate their ages.",
