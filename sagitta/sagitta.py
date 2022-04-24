@@ -8,7 +8,7 @@ Authors: Aidan McBride, Ryan Lingg, Marina Kounkel, Kevin Covey, and Brian Hutch
 import os
 import sys
 import argparse
-import galpy.util.bovy_coords as bc
+import galpy.util.coords as bc
 import numpy as np
 import pandas as pd
 import torch
