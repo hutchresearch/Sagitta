@@ -9,9 +9,9 @@ with open("README.md", "r") as fh:
     
 setuptools.setup(
     name="Sagitta",
-    version="1.1",
+    version="1.2",
     author="Aidan McBride, Ryan Lingg, Marina Kounkel, Kevin Covey, Brian Hutchinson",
-    author_email="marina.kounkel@wwu.edu, mcbrida5@wwu.edu, linggr@wwu.edu",
+    author_email="marina.kounkel@vanderbilt.edu, mcbrida5@wwu.edu, linggr@wwu.edu",
     description="A neural network based pipeline to identify pre-main sequence stars and estimate their ages.",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -26,7 +26,7 @@ setuptools.setup(
         'sagitta' : ['data_tools.py','model_code.py','model_state_dicts/av_model.pt','model_state_dicts/pms_model.pt','model_state_dicts/age_model.pt'],
         'sagitta.tests' : []
     },
-    install_requires=['numpy','torch','astropy','astroquery','pandas','galpy'],
+    install_requires=['numpy','torch','astropy','astroquery','galpy'],
     entry_points={'console_scripts': ['sagitta=sagitta.sagitta:main']},
     python_requires='>=3.6',
 )
