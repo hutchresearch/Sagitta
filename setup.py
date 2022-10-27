@@ -9,14 +9,14 @@ with open("README.md", "r") as fh:
     
 setuptools.setup(
     name="Sagitta",
-    version="1.2",
+    version="1.2.2",
     author="Aidan McBride, Ryan Lingg, Marina Kounkel, Kevin Covey, Brian Hutchinson",
     author_email="marina.kounkel@vanderbilt.edu, mcbrida5@wwu.edu, linggr@wwu.edu",
     description="A neural network based pipeline to identify pre-main sequence stars and estimate their ages.",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/hutchresearch/Sagitta",
-    packages=['sagitta', 'sagitta.tests'],
+    packages=['sagitta'],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
