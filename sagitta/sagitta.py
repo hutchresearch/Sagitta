@@ -12,7 +12,7 @@ import galpy.util.coords as bc
 import numpy as np
 import torch
 import torch.utils.data
-from astropy.table import Table as AstroTable
+from astropy.table import join,Table as AstroTable
 
 #--------------- Local Imports ---------------#
 if __name__ == "sagitta.sagitta":
@@ -261,7 +261,7 @@ class SagittaPipeline:
                                                     ver=self.args.version
                                                     )
             missing_fields_frame.rename_column("source_id", self.std_input_col_naming["source_id"])
-            self.data_frame = AstroTable.join(self.data_frame,missing_fields_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
+            self.data_frame = join(self.data_frame,missing_fields_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
 
     def get_missing_fields_list(self):
         """
@@ -417,7 +417,7 @@ class SagittaPipeline:
         av_stats_frame.rename_column("max",		self.args.av_out + "_max")
         av_stats_frame.rename_column("source_id",self.std_input_col_naming["source_id"])
 
-        self.data_frame = AstroTable.join(self.data_frame,av_stats_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
+        self.data_frame = join(self.data_frame,av_stats_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
 
     def predict_pms(self):
         """
@@ -549,7 +549,7 @@ class SagittaPipeline:
         pms_stats_frame.rename_column("min",		self.args.av_out + "_min")
         pms_stats_frame.rename_column("max",		self.args.av_out + "_max")
         pms_stats_frame.rename_column("source_id",self.std_input_col_naming["source_id"])
-        self.data_frame = AstroTable.join(self.data_frame,pms_stats_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
+        self.data_frame = join(self.data_frame,pms_stats_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
 
 
     def predict_age(self):
@@ -692,7 +692,7 @@ class SagittaPipeline:
         age_stats_frame.rename_column("min",		self.args.av_out + "_min")
         age_stats_frame.rename_column("max",		self.args.av_out + "_max")
         age_stats_frame.rename_column("source_id",self.std_input_col_naming["source_id"])
-        self.data_frame = AstroTable.join(self.data_frame,age_stats_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
+        self.data_frame = join(self.data_frame,age_stats_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
 
     def save_output_table(self):
         """
