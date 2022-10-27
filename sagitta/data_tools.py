@@ -65,15 +65,14 @@ class DataTools():
         return output
 
     @staticmethod
-    def pandas_from_table(table):
+    def astropy_from_table(data_frame):
         """
         1) Converts the column names of the fits file to lowercase
         2) Renames columns based on the contents of column_renaming
         """
         
-        data_frame = table.filled(fill_value=-1).to_pandas()
-        for col in data_frame:
-            data_frame.rename(columns={col: col.lower()}, inplace=True)
+        for col in data_frame.keys():
+            data_frame.rename_column(col,col.lower())
             col=col.lower()
         return data_frame
 
@@ -147,7 +146,7 @@ class DataTools():
                 upload_resource = input_table,
                 upload_table_name = "input_table",
                 verbose = False)
-            missing_fields_table = query_result.get_results().to_pandas()
+            missing_fields_table = query_result.get_results()
             if len(missing_fields_table)==0:
                 print('Could not query any data for the specified source_id')
                 sys.exit()
@@ -183,7 +182,7 @@ class DataTools():
             if column in data_frame.columns:
                 mask_col_name = column + nan_column_extension
                 data_frame[mask_col_name] = np.ma.getmask(np.ma.masked_invalid(data_frame[column]))
-                data_frame[column] = np.nan_to_num(data_frame[column], nan=nan_replacement)
+                if data_frame[mask_col_name].any(): data_frame[column] = data_frame[column].filled(nan_replacement)
         return data_frame
 
 class SagittaDataset(torch.utils.data.Dataset):
@@ -198,35 +197,38 @@ class SagittaDataset(torch.utils.data.Dataset):
     def __init__(self, frame, data_format, column_names):
         if data_format == "StellarExtinction":
             av_input_names = [column_names[std_name] for std_name in ["l", "b", "parallax"]]
-            av_input = frame.filter(items=av_input_names)
+            av_input = frame[av_input_names]
             av_input[column_names["l"]] = av_input[column_names["l"]]/360
             av_input[column_names["b"]] = (av_input[column_names["b"]]/180)+0.5
             av_input[column_names["parallax"]] = av_input[column_names["parallax"]]/5
-            av_input = np.array(av_input).astype(np.float32)
+            av_input = np.lib.recfunctions.structured_to_unstructured(av_input.as_array()).astype(np.float32)
+            if np.ma.isMaskedArray(av_input): av_input=av_input.filled()
             self.inputs = np.reshape(av_input, (-1, 1, 3))
         elif data_format == "PMSClassifier":
             pms_std_input_names = ["parallax", "av", "g", "bp", "rp", "j", "h", "k"]
             pms_input_names = [column_names[std_name] for std_name in pms_std_input_names]
-            pms_input = frame.filter(items=pms_input_names)
+            pms_input = frame[pms_input_names]
             std_input_column_names = {v: k for k, v in column_names.items()}
             for col in pms_input.columns:
                 pms_input[col] = DataTools.normalize_gaia(
                                             column_vals=pms_input[col],
                                             column_name=std_input_column_names[col]
                                             )
-            pms_input = np.array(pms_input).astype(np.float32)
+            pms_input = np.lib.recfunctions.structured_to_unstructured(pms_input.as_array()).astype(np.float32)
+            if np.ma.isMaskedArray(pms_input): pms_input=pms_input.filled()
             self.inputs = np.reshape(pms_input, (-1, 1, 8))
         elif data_format == "YoungStarAgeRegressor":
             age_std_input_names = ["parallax", "av", "g", "bp", "rp", "j", "h", "k"]
             age_input_names = [column_names[std_name] for std_name in age_std_input_names]
-            age_input = frame.filter(items=age_input_names)
+            age_input = frame[age_input_names]
             std_input_column_names = {v: k for k, v in column_names.items()}
             for col in age_input.columns:
                 age_input[col] = DataTools.normalize_gaia(
                                             column_vals=age_input[col],
                                             column_name=std_input_column_names[col]
                                             )
-            age_input = np.array(age_input).astype(np.float32)
+            age_input = np.lib.recfunctions.structured_to_unstructured(age_input.as_array()).astype(np.float32)
+            if np.ma.isMaskedArray(age_input): age_input=age_input.filled()
             self.inputs = np.reshape(age_input, (-1, 1, 8))
         else:
             print("Unknown dataset format specified: {}".format(data_format), file=sys.stderr)

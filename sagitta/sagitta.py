@@ -10,7 +10,6 @@ import sys
 import argparse
 import galpy.util.coords as bc
 import numpy as np
-import pandas as pd
 import torch
 import torch.utils.data
 from astropy.table import Table as AstroTable
@@ -140,10 +139,10 @@ class SagittaPipeline:
                 print("In testing mode!")
                 input_table = input_table[:10000]
             print("\tMaking dataframe from table")
-            self.data_frame = DataTools.pandas_from_table(table=input_table)
+            self.data_frame = DataTools.astropy_from_table(input_table)
         else:
             print('Creating a catalog using a given source_id')
-            self.data_frame = pd.DataFrame(data=[int(self.args.tableIn)],columns=['source_id'])
+            self.data_frame = AstroTable([[int(self.args.tableIn)]],names=['source_id'])
 
 
     def check_bad_source_id_rows(self):
@@ -253,7 +252,7 @@ class SagittaPipeline:
         """
         missing_fields = self.get_missing_fields_list()
         if len(missing_fields) > 0:
-            missing_fields_frame = pd.DataFrame()
+            missing_fields_frame = AstroTable()
             source_id_col_name = self.std_input_col_naming["source_id"]
             missing_fields_frame["source_id"] = self.data_frame[source_id_col_name]
             missing_fields_frame = DataTools.download_missing_fields(
@@ -261,16 +260,8 @@ class SagittaPipeline:
                                                     missing_fields=missing_fields,
                                                     ver=self.args.version
                                                     )
-            missing_fields_frame.rename(
-                                    columns={"source_id" : self.std_input_col_naming["source_id"]},
-                                    inplace=True
-                                    )
-            missing_fields_frame=missing_fields_frame.drop_duplicates()
-            self.data_frame = self.data_frame.merge(
-                                                missing_fields_frame,
-                                                on=self.std_input_col_naming["source_id"],
-                                                how="left"
-                                                )
+            missing_fields_frame.rename_column("source_id", self.std_input_col_naming["source_id"])
+            self.data_frame = AstroTable.join(self.data_frame,missing_fields_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
 
     def get_missing_fields_list(self):
         """
@@ -282,26 +273,27 @@ class SagittaPipeline:
             if given in frame_columns:
                 frame_columns.remove(given)
                 frame_columns.append(working)
-        important_columns = {"source_id"}
+        important_columns = ["source_id"]
         if self.args.download_only:
             for field in ["parallax", "g", "bp", "rp", "j", "h", "k",
                             "eparallax", "eg", "ebp", "erp", "ej", "eh", "ek",
                             "pmra", "pmdec", "epmra", "epmdec"]:
-                important_columns.add(field)
+                important_columns.append(field)
         else:
             if self.should_run_av_model():
                 for field in ["l", "b", "parallax"]:
-                    important_columns.add(field)
+                    important_columns.append(field)
             if self.should_generate_av_uncertainties():
                 for field in ["l", "b", "parallax", "eparallax"]:
-                    important_columns.add(field)
+                    important_columns.append(field)
             if self.should_run_pms_model() or self.should_run_age_model():
                 for field in ["parallax", "g", "bp", "rp", "j", "h", "k"]:
-                    important_columns.add(field)
+                    important_columns.append(field)
             if self.should_generate_pms_uncertainties() or self.should_generate_age_uncertainties():
                 for field in ["parallax", "g", "bp", "rp", "j", "h", "k",
                                 "eparallax", "eg", "ebp", "erp", "ej", "eh", "ek"]:
-                    important_columns.add(field)
+                    important_columns.append(field)
+        important_columns=dict.fromkeys(important_columns)
         missing_fields = []
         for col in important_columns:
             if col not in frame_columns:
@@ -417,21 +409,15 @@ class SagittaPipeline:
         av_stats_frame = av_stats_frame["av"].reset_index()
         av_stats_frame = av_stats_frame.filter(items=["source_id", "mean", "median",
                                                         "std", "var", "min", "max"])
-        av_stats_frame.rename(inplace=True,
-                                columns={
-                                    "mean"      :   self.args.av_out + "_mean",
-                                    "median"    :   self.args.av_out + "_median",
-                                    "std"       :   self.args.av_out + "_std",
-                                    "var"       :   self.args.av_out + "_var",
-                                    "min"       :   self.args.av_out + "_min",
-                                    "max"       :   self.args.av_out + "_max",
-                                    "source_id" :   self.std_input_col_naming["source_id"]
-                                })
-        self.data_frame = self.data_frame.merge(
-                                        av_stats_frame,
-                                        how="inner",
-                                        on=self.std_input_col_naming["source_id"]
-                                        )
+        av_stats_frame.rename_column("mean",	self.args.av_out + "_mean")
+        av_stats_frame.rename_column("median",	self.args.av_out + "_median")
+        av_stats_frame.rename_column("std",		self.args.av_out + "_std")
+        av_stats_frame.rename_column("var",		self.args.av_out + "_var")
+        av_stats_frame.rename_column("min",		self.args.av_out + "_min")
+        av_stats_frame.rename_column("max",		self.args.av_out + "_max")
+        av_stats_frame.rename_column("source_id",self.std_input_col_naming["source_id"])
+
+        self.data_frame = AstroTable.join(self.data_frame,av_stats_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
 
     def predict_pms(self):
         """
@@ -555,21 +541,16 @@ class SagittaPipeline:
         pms_stats_frame = pms_stats_frame["pms"].reset_index()
         pms_stats_frame = pms_stats_frame.filter(items=["source_id", "mean", "median",
                                                 "std", "var", "min", "max"])
-        pms_stats_frame.rename(inplace=True,
-                                columns={
-                                    "mean"      :   self.args.pms_out + "_mean",
-                                    "median"    :   self.args.pms_out + "_median",
-                                    "std"       :   self.args.pms_out + "_std",
-                                    "var"       :   self.args.pms_out + "_var",
-                                    "min"       :   self.args.pms_out + "_min",
-                                    "max"       :   self.args.pms_out + "_max",
-                                    "source_id" :   self.std_input_col_naming["source_id"]
-                                })
-        self.data_frame = self.data_frame.merge(
-                                            pms_stats_frame,
-                                            how="inner",
-                                            on=self.std_input_col_naming["source_id"]
-                                            )
+
+        pms_stats_frame.rename_column("mean",	self.args.av_out + "_mean")
+        pms_stats_frame.rename_column("median",	self.args.av_out + "_median")
+        pms_stats_frame.rename_column("std",		self.args.av_out + "_std")
+        pms_stats_frame.rename_column("var",		self.args.av_out + "_var")
+        pms_stats_frame.rename_column("min",		self.args.av_out + "_min")
+        pms_stats_frame.rename_column("max",		self.args.av_out + "_max")
+        pms_stats_frame.rename_column("source_id",self.std_input_col_naming["source_id"])
+        self.data_frame = AstroTable.join(self.data_frame,pms_stats_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
+
 
     def predict_age(self):
         """
@@ -703,21 +684,15 @@ class SagittaPipeline:
         age_stats_frame = age_stats_frame["age"].reset_index()
         age_stats_frame = age_stats_frame.filter(items=["source_id", "mean", "median",
                                                 "std", "var", "min", "max"])
-        age_stats_frame.rename(inplace=True,
-                                columns={
-                                    "mean"      :   self.args.age_out + "_mean",
-                                    "median"    :   self.args.age_out + "_median",
-                                    "std"       :   self.args.age_out + "_std",
-                                    "var"       :   self.args.age_out + "_var",
-                                    "min"       :   self.args.age_out + "_min",
-                                    "max"       :   self.args.age_out + "_max",
-                                    "source_id" :   self.std_input_col_naming["source_id"]
-                                })
-        self.data_frame = self.data_frame.merge(
-                                            age_stats_frame,
-                                            how="inner",
-                                            on=self.std_input_col_naming["source_id"]
-                                            )
+
+        age_stats_frame.rename_column("mean",	self.args.av_out + "_mean")
+        age_stats_frame.rename_column("median",	self.args.av_out + "_median")
+        age_stats_frame.rename_column("std",		self.args.av_out + "_std")
+        age_stats_frame.rename_column("var",		self.args.av_out + "_var")
+        age_stats_frame.rename_column("min",		self.args.av_out + "_min")
+        age_stats_frame.rename_column("max",		self.args.av_out + "_max")
+        age_stats_frame.rename_column("source_id",self.std_input_col_naming["source_id"])
+        self.data_frame = AstroTable.join(self.data_frame,age_stats_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
 
     def save_output_table(self):
         """
@@ -727,7 +702,7 @@ class SagittaPipeline:
         4) Sets the output table file name
         5) Performs the writing of the table to disk
         """
-        output_table = AstroTable(AstroTable.from_pandas(self.data_frame), masked=True)
+        output_table = self.data_frame
         for column_name in output_table.colnames:
             column_nan_mask_name = column_name + self.nan_column_suffix
             if column_nan_mask_name in output_table.colnames:
@@ -742,9 +717,13 @@ class SagittaPipeline:
             print("Output table columns:", ", ".join(output_table.colnames))
         print("Saving output table to {}".format(output_table_name))
         
+        output_table[self.std_input_col_naming["source_id"]]=AstroTable.MaskedColumn(output_table[self.std_input_col_naming["source_id"]])
         a=np.where(output_table[self.std_input_col_naming["source_id"]]<0)[0]
         output_table[self.std_input_col_naming["source_id"]].mask[a]=True
         output_table.write(output_table_name, overwrite=True)
+        
+        if self.args.single_object:
+            print(output_table)
 
     def get_output_table_name(self):
         """
