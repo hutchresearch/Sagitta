@@ -12,7 +12,7 @@ import galpy.util.coords as bc
 import numpy as np
 import torch
 import torch.utils.data
-from astropy.table import join,Table as AstroTable
+from astropy.table import join,vstack,Table as AstroTable
 
 #--------------- Local Imports ---------------#
 if __name__ == "sagitta.sagitta":
@@ -275,7 +275,7 @@ class SagittaPipeline:
                 frame_columns.append(working)
         important_columns = ["source_id"]
         if self.args.download_only:
-            for field in ["parallax", "g", "bp", "rp", "j", "h", "k",
+            for field in ["l","b","parallax", "g", "bp", "rp", "j", "h", "k",
                             "eparallax", "eg", "ebp", "erp", "ej", "eh", "ek",
                             "pmra", "pmdec", "epmra", "epmdec"]:
                 important_columns.append(field)
@@ -335,7 +335,7 @@ class SagittaPipeline:
                 section_output = av_model(section_input)
                 av_model_output.append(section_output)
         av_model_output = torch.cat(av_model_output).cpu().detach().numpy()*5
-        self.data_frame[self.args.av_out] = av_model_output
+        self.data_frame[self.args.av_out] = av_model_output.flatten()
         self.std_input_col_naming["av"] = self.args.av_out
 
     def generate_av_uncertainties(self):
@@ -348,8 +348,8 @@ class SagittaPipeline:
         """
         print("Generating Av uncertainties with " + str(self.args.av_uncertainty) +
                 " samples per star\n\tScattering Av model inputs")
-        loop_frame = pd.DataFrame()
-        varied_frame = pd.DataFrame()
+        loop_frame = AstroTable()
+        varied_frame = []
         l_name = self.std_input_col_naming["l"]
         b_name = self.std_input_col_naming["b"]
         source_id_name = self.std_input_col_naming["source_id"]
@@ -362,16 +362,17 @@ class SagittaPipeline:
             "parallax"  :   "parallax",
             "eparallax" :   "eparallax",
         }
+        loop_frame["l"] = self.data_frame[l_name]
+        loop_frame["b"] = self.data_frame[b_name]
+        loop_frame["source_id"] = self.data_frame[source_id_name]
         for idx in range(self.args.av_uncertainty):
             print("\t{:.1f}% completed".format(idx/self.args.av_uncertainty*100), end="\r")
-            loop_frame["parallax"] = self.data_frame[parallax_name].to_numpy() + (
+            loop_frame["parallax"] = self.data_frame[parallax_name] + (
                                         np.random.normal(size=len(self.data_frame))*
-                                        self.data_frame[eparallax_name].to_numpy()
+                                        self.data_frame[eparallax_name]
                                         )
-            loop_frame["l"] = self.data_frame[l_name]
-            loop_frame["b"] = self.data_frame[b_name]
-            loop_frame["source_id"] = self.data_frame[source_id_name]
-            varied_frame = varied_frame.append(loop_frame.copy(), ignore_index=True)
+            varied_frame.append(loop_frame.copy())
+        varied_frame = vstack(varied_frame)
         print("\tRunning the Av model on the varied data")
         av_uncertainty_dataset = SagittaDataset(
                                         frame=varied_frame,
@@ -402,20 +403,17 @@ class SagittaPipeline:
                         end="\r")
                 section_output = av_model(section_input)
                 av_predictions.append(section_output)
-        varied_frame["av"] = torch.cat(av_predictions).cpu().detach().numpy()*5
+        varied_frame["av"] = (torch.cat(av_predictions).cpu().detach().numpy()*5).flatten()
         print("\tAggregating the Av uncertainties")
-        av_stats_frame = varied_frame.filter(items=["source_id", "av"]).groupby("source_id")
-        av_stats_frame = av_stats_frame.agg(["mean", "median", "std", "var", "min", "max"])
-        av_stats_frame = av_stats_frame["av"].reset_index()
-        av_stats_frame = av_stats_frame.filter(items=["source_id", "mean", "median",
-                                                        "std", "var", "min", "max"])
-        av_stats_frame.rename_column("mean",	self.args.av_out + "_mean")
-        av_stats_frame.rename_column("median",	self.args.av_out + "_median")
-        av_stats_frame.rename_column("std",		self.args.av_out + "_std")
-        av_stats_frame.rename_column("var",		self.args.av_out + "_var")
-        av_stats_frame.rename_column("min",		self.args.av_out + "_min")
-        av_stats_frame.rename_column("max",		self.args.av_out + "_max")
-        av_stats_frame.rename_column("source_id",self.std_input_col_naming["source_id"])
+        varied_frame = varied_frame[["source_id", "av"]].group_by("source_id")  
+        av_stats_frame=AstroTable()
+        av_stats_frame[self.std_input_col_naming["source_id"]]=varied_frame['source_id'].groups.aggregate(np.min)
+        av_stats_frame[self.args.av_out + "_mean"]   = varied_frame['av'].groups.aggregate(np.mean)
+        av_stats_frame[self.args.av_out + "_median"] = varied_frame['av'].groups.aggregate(np.median)
+        av_stats_frame[self.args.av_out + "_std"]    = varied_frame['av'].groups.aggregate(np.std)
+        av_stats_frame[self.args.av_out + "_var"]    = varied_frame['av'].groups.aggregate(np.var)
+        av_stats_frame[self.args.av_out + "_min"]    = varied_frame['av'].groups.aggregate(np.min)
+        av_stats_frame[self.args.av_out + "_max"]    = varied_frame['av'].groups.aggregate(np.max)
 
         self.data_frame = join(self.data_frame,av_stats_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
 
@@ -466,8 +464,9 @@ class SagittaPipeline:
         """
         print("Generating PMS uncertainties with " + str(self.args.pms_uncertainty) +
                 " samples per star\n\tScattering PMS model inputs")
-        loop_frame = pd.DataFrame()
-        varied_frame = pd.DataFrame()
+        loop_frame = AstroTable()#pd.DataFrame()
+        loop_frame["source_id"] = self.data_frame[self.std_input_col_naming["source_id"]]
+        varied_frame = []#pd.DataFrame()
         input_std_col_naming = {v: k for k, v in self.std_input_col_naming.items()}
         for idx in range(self.args.pms_uncertainty):
             print("\t{:.1f}% completed".format(idx/self.args.pms_uncertainty*100), end="\r")
@@ -481,19 +480,26 @@ class SagittaPipeline:
                 [self.std_input_col_naming["parallax"], self.std_input_col_naming["eparallax"]]
             ]
             for val, err in val_err_list:
-                loop_frame[input_std_col_naming[val]] = self.data_frame[val].to_numpy() + (
+                loop_frame[input_std_col_naming[val]] = self.data_frame[val] + (
                                         np.random.normal(size=len(self.data_frame)) *
-                                        self.data_frame[err].to_numpy()
+                                        self.data_frame[err]
                                         )
-                loop_frame["av"] = self.data_frame[self.std_input_col_naming["av"]].to_numpy() + (
+            if self.args.av_out + "_min" in self.data_frame.keys():
+            	loop_frame["av"] = self.data_frame[self.std_input_col_naming["av"]] + (
+                                                            np.random.uniform(
+                                                                size=len(self.data_frame)
+                                                            )+self.data_frame[self.args.av_out + "_min"]
+                                                        )*(self.data_frame[self.args.av_out + "_max"]-self.data_frame[self.args.av_out + "_min"])
+            else:
+            	loop_frame["av"] = self.data_frame[self.std_input_col_naming["av"]] + (
                                                             np.random.uniform(
                                                                 low=-self.args.av_scatter_range,
                                                                 high=self.args.av_scatter_range,
                                                                 size=len(self.data_frame)
                                                             )
                                                         )
-                loop_frame["source_id"] = self.data_frame[self.std_input_col_naming["source_id"]]
-            varied_frame = varied_frame.append(loop_frame.copy(), ignore_index=True)
+            varied_frame.append(loop_frame.copy())
+        varied_frame = vstack(varied_frame)#varied_frame.append(loop_frame.copy(), ignore_index=True)
         print("\tRunning the PMS model on the varied data")
         std_naming = {
             "parallax"  :   "parallax",
@@ -534,23 +540,18 @@ class SagittaPipeline:
                         end="\r")
                 section_output = torch.sigmoid(pms_model(section_input))
                 pms_predictions.append(section_output)
-        varied_frame["pms"] = torch.cat(pms_predictions).cpu().detach().numpy()
+        varied_frame["pms"] = torch.cat(pms_predictions).cpu().detach().numpy().flatten()
         print("\tAggregating the pms probablity uncertainties")
-        pms_stats_frame = varied_frame.filter(items=["source_id", "pms"]).groupby("source_id")
-        pms_stats_frame = pms_stats_frame.agg(["mean", "median", "std", "var", "min", "max"])
-        pms_stats_frame = pms_stats_frame["pms"].reset_index()
-        pms_stats_frame = pms_stats_frame.filter(items=["source_id", "mean", "median",
-                                                "std", "var", "min", "max"])
-
-        pms_stats_frame.rename_column("mean",	self.args.av_out + "_mean")
-        pms_stats_frame.rename_column("median",	self.args.av_out + "_median")
-        pms_stats_frame.rename_column("std",		self.args.av_out + "_std")
-        pms_stats_frame.rename_column("var",		self.args.av_out + "_var")
-        pms_stats_frame.rename_column("min",		self.args.av_out + "_min")
-        pms_stats_frame.rename_column("max",		self.args.av_out + "_max")
-        pms_stats_frame.rename_column("source_id",self.std_input_col_naming["source_id"])
+        varied_frame = varied_frame[["source_id", "pms"]].group_by("source_id")                
+        pms_stats_frame=AstroTable()
+        pms_stats_frame[self.std_input_col_naming["source_id"]]=varied_frame['source_id'].groups.aggregate(np.min)
+        pms_stats_frame[self.args.pms_out + "_mean"]   = varied_frame['pms'].groups.aggregate(np.mean)
+        pms_stats_frame[self.args.pms_out + "_median"] = varied_frame['pms'].groups.aggregate(np.median)
+        pms_stats_frame[self.args.pms_out + "_std"]    = varied_frame['pms'].groups.aggregate(np.std)
+        pms_stats_frame[self.args.pms_out + "_var"]    = varied_frame['pms'].groups.aggregate(np.var)
+        pms_stats_frame[self.args.pms_out + "_min"]    = varied_frame['pms'].groups.aggregate(np.min)
+        pms_stats_frame[self.args.pms_out + "_max"]    = varied_frame['pms'].groups.aggregate(np.max)
         self.data_frame = join(self.data_frame,pms_stats_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
-
 
     def predict_age(self):
         """
@@ -591,7 +592,7 @@ class SagittaPipeline:
                                         column_vals=age_predictions,
                                         column_name="age",
                                         back=True
-                                        )
+                                        ).flatten()
         self.data_frame[self.args.age_out] = age_predictions
 
     def generate_age_uncertainties(self):
@@ -604,8 +605,9 @@ class SagittaPipeline:
         """
         print("Generating Age uncertainties with " + str(self.args.age_uncertainty) +
                 " samples per star\n\tScattering Age model inputs")
-        loop_frame = pd.DataFrame()
-        varied_frame = pd.DataFrame()
+        loop_frame = AstroTable()
+        loop_frame["source_id"] = self.data_frame[self.std_input_col_naming["source_id"]]
+        varied_frame = []
         input_std_col_naming = {v: k for k, v in self.std_input_col_naming.items()}
         for idx in range(self.args.age_uncertainty):
             print("\t{:.1f}% completed".format(idx/self.args.age_uncertainty*100), end="\r")
@@ -619,19 +621,26 @@ class SagittaPipeline:
                 [self.std_input_col_naming["parallax"], self.std_input_col_naming["eparallax"]]
             ]
             for val, err in val_err_list:
-                loop_frame[input_std_col_naming[val]] = self.data_frame[val].to_numpy() + (
+                loop_frame[input_std_col_naming[val]] = self.data_frame[val] + (
                                         np.random.normal(size=len(self.data_frame)) *
-                                        self.data_frame[err].to_numpy()
+                                        self.data_frame[err]
                                         )
-                loop_frame["av"] = self.data_frame[self.std_input_col_naming["av"]].to_numpy() + (
+            if self.args.av_out + "_min" in self.data_frame.keys():
+            	loop_frame["av"] = self.data_frame[self.std_input_col_naming["av"]] + (
+                                                            np.random.uniform(
+                                                                size=len(self.data_frame)
+                                                            )+self.data_frame[self.args.av_out + "_min"]
+                                                        )*(self.data_frame[self.args.av_out + "_max"]-self.data_frame[self.args.av_out + "_min"])
+            else:
+            	loop_frame["av"] = self.data_frame[self.std_input_col_naming["av"]] + (
                                                             np.random.uniform(
                                                                 low=-self.args.av_scatter_range,
                                                                 high=self.args.av_scatter_range,
                                                                 size=len(self.data_frame)
                                                             )
                                                         )
-                loop_frame["source_id"] = self.data_frame[self.std_input_col_naming["source_id"]]
-            varied_frame = varied_frame.append(loop_frame.copy(), ignore_index=True)
+            varied_frame.append(loop_frame.copy())
+        varied_frame = vstack(varied_frame)
         std_naming = {
             "parallax"  :   "parallax",
             "av"        :   "av",
@@ -677,21 +686,18 @@ class SagittaPipeline:
                                             column_vals=age_predictions,
                                             column_name="age",
                                             back=True
-                                            )
+                                            ).flatten()
         print("\tAggregating the age uncertainties")
-        age_stats_frame = varied_frame.filter(items=["source_id", "age"]).groupby("source_id")
-        age_stats_frame = age_stats_frame.agg(["mean", "median", "std", "var", "min", "max"])
-        age_stats_frame = age_stats_frame["age"].reset_index()
-        age_stats_frame = age_stats_frame.filter(items=["source_id", "mean", "median",
-                                                "std", "var", "min", "max"])
-
-        age_stats_frame.rename_column("mean",	self.args.av_out + "_mean")
-        age_stats_frame.rename_column("median",	self.args.av_out + "_median")
-        age_stats_frame.rename_column("std",		self.args.av_out + "_std")
-        age_stats_frame.rename_column("var",		self.args.av_out + "_var")
-        age_stats_frame.rename_column("min",		self.args.av_out + "_min")
-        age_stats_frame.rename_column("max",		self.args.av_out + "_max")
-        age_stats_frame.rename_column("source_id",self.std_input_col_naming["source_id"])
+        varied_frame = varied_frame[["source_id", "age"]].group_by("source_id")
+        age_stats_frame=AstroTable()
+        age_stats_frame[self.std_input_col_naming["source_id"]]=varied_frame['source_id'].groups.aggregate(np.min)
+        age_stats_frame[self.args.age_out + "_mean"]   = varied_frame['age'].groups.aggregate(np.mean)
+        age_stats_frame[self.args.age_out + "_median"] = varied_frame['age'].groups.aggregate(np.median)
+        age_stats_frame[self.args.age_out + "_std"]    = varied_frame['age'].groups.aggregate(np.std)
+        age_stats_frame[self.args.age_out + "_var"]    = varied_frame['age'].groups.aggregate(np.var)
+        age_stats_frame[self.args.age_out + "_min"]    = varied_frame['age'].groups.aggregate(np.min)
+        age_stats_frame[self.args.age_out + "_max"]    = varied_frame['age'].groups.aggregate(np.max)
+        
         self.data_frame = join(self.data_frame,age_stats_frame,keys=self.std_input_col_naming["source_id"],join_type='inner')
 
     def save_output_table(self):
@@ -938,7 +944,7 @@ def parse_args():
                                 "extinction (Av) column values will be scattered by +/- this " +
                                 "much [default: 0.1]",
                         default=0.1,
-                        type=int)
+                        type=float)
     # Processing Options:
     processing_options = parser.add_argument_group("Processing options")
     processing_options.add_argument("--batch_size",
