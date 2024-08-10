@@ -180,9 +180,14 @@ class DataTools():
         }
         for _, (column, nan_replacement) in enumerate(nan_replacements.items()):
             if column in data_frame.columns:
-                mask_col_name = column + nan_column_extension
-                data_frame[mask_col_name] = np.ma.getmask(np.ma.masked_invalid(data_frame[column]))
-                if data_frame[mask_col_name].any(): data_frame[column] = data_frame[column].filled(nan_replacement)
+                try:
+                    mask_col_name = column + nan_column_extension
+                    data_frame[mask_col_name] = np.ma.getmask(np.ma.masked_invalid(data_frame[column]))
+                    if data_frame[mask_col_name].any(): data_frame[column] = data_frame[column].filled(nan_replacement)
+                except:
+                    mask_col_name = column + nan_column_extension
+                    data_frame[mask_col_name] = np.isnan(data_frame[column])
+                    data_frame[column][np.isnan(data_frame[column])] = nan_replacement
         return data_frame
 
 class SagittaDataset(torch.utils.data.Dataset):
